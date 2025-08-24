@@ -1,0 +1,236 @@
+:root {
+  --bg: #0b1220;
+  --card: #0f1724;
+  --muted: #9aa4b2;
+  --accent: #6ee7b7;
+  --text: #e6eef8;
+  --code-bg: #011627;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  padding: 20px 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.topbar .sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.container {
+  display: flex;
+  gap: 18px;
+  padding: 20px;
+  align-items: flex-start;
+  flex: 1;
+}
+
+.left {
+  width: 40%;
+}
+
+.right {
+  width: 60%;
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.015));
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  width: 100%;
+}
+
+.helper {
+  color: var(--muted);
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+progress {
+  width: 100%;
+  margin-top: 10px;
+}
+
+textarea {
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--accent);
+  border: none;
+  color: #042;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.answer {
+  margin-top: 12px;
+}
+
+.documind-card {
+  border-radius: 8px;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.footer {
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+}
+
+/* Progress bar styles */
+.progress-container {
+  width: 100%;
+  margin: 15px 0;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 0.9em;
+}
+
+.status {
+  color: var(--muted);
+}
+
+.page-info {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  text-align: center;
+  font-size: 0.8em;
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+/* Processing indicator */
+.processing-indicator {
+  display: flex;
+  align-items: center;
+  margin-top: 15px;
+  padding: 10px;
+  background-color: rgba(110, 231, 183, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* File input styling */
+input[type="file"] {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: inherit;
+}
+
+/* MathJax styling adjustments */
+.MathJax {
+  color: #ffa726 !important;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .container {
+    flex-direction: column;
+  }
+  
+  .left, .right {
+    width: 100%;
+  }
+  
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+}
