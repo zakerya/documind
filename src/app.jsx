@@ -1,31 +1,41 @@
+// src/app.jsx
 import React, { useState } from 'react'
-import UploadIndex from './components/UploadIndex'
-import Chat from './components/Chat'
-import useMathJax from './hooks/useMathJax'
+import Chat from './components/Chat.jsx'
+import UploadIndex from './components/UploadIndex.jsx'
+import useMathJax from './hooks/useMathJax.js'
+import './index.css'
 
-export default function App(){
-  // load MathJax once for the app (v3 CDN)
+export default function App() {
+  const [collection, setCollection] = useState('')
   useMathJax()
 
-  const [collection, setCollection] = useState(null)
-
   return (
-    <div className="app-root dark">
-      <header className="topbar">
+    <div className="app-root">
+      <div className="topbar">
         <h1>DocuMind</h1>
-        <p className="sub">Local PDF Chat — frontend demo (MathJax-first)</p>
-      </header>
-
-      <main className="container">
-        <section className="left">
-          <UploadIndex onIndexed={(name)=>setCollection(name)} />
-        </section>
-        <section className="right">
-          <Chat collection={collection} />
-        </section>
-      </main>
-
-      <footer className="footer">DocuMind</footer>
+        <p className="sub">AI-powered PDF assistant</p>
+      </div>
+      
+      <div className="container">
+        {!collection ? (
+          <div className="centered-content">
+            <UploadIndex onIndexed={setCollection} />
+          </div>
+        ) : (
+          <>
+            <div className="left">
+              <UploadIndex onIndexed={setCollection} />
+            </div>
+            <div className="right">
+              <Chat collection={collection} />
+            </div>
+          </>
+        )}
+      </div>
+      
+      <div className="footer">
+        DocuMind - AI-powered PDF assistant
+      </div>
     </div>
   )
 }

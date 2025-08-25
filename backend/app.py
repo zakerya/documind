@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 
 # New Gen AI SDK
 try:
-    from google import genai
-except Exception:
+    import google.generativeai as genai
+except Exception as e:
+    logging.error(f"Failed to import google.generativeai: {e}")
     genai = None
 
 # --- Configuration ---
@@ -19,7 +20,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # Default model; change or override with env GEMINI_MODEL
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 INDEX_DIR = Path("./indexed")
 INDEX_DIR.mkdir(parents=True, exist_ok=True)
@@ -34,14 +35,14 @@ if not GEMINI_API_KEY:
     logging.warning("GEMINI_API_KEY not set — Gemini calls will be disabled.")
 else:
     if genai is None:
-        logging.error("google-genai SDK not installed or importable. Install with: pip install google-genai")
+        logging.error("google-generativeai SDK not installed or importable. Install with: pip install google-generativeai")
     else:
         try:
-            client = genai.Client(api_key=GEMINI_API_KEY)
+            genai.configure(api_key=GEMINI_API_KEY)
             logging.info("Gemini client created.")
         except Exception as e:
             logging.exception("Failed to create Gemini client: %s", e)
-            client = None
+            genai = None
 
 # --- Helpers ---
 def index_path_for(collection_name: str) -> Path:
@@ -115,21 +116,13 @@ def index_document():
 
 @app.route("/api/list-models", methods=["GET"])
 def list_models():
-    if client is None:
+    if genai is None:
         return jsonify({"error": "Gemini client not configured"}), 500
     try:
-        models = client.models.list()
-        # models may be objects — attempt to extract .name or .model_id
+        models = genai.list_models()
         names = []
         for m in models:
-            # m may be a dict-like or object; try common attrs
-            if hasattr(m, "name"):
-                names.append(m.name)
-            elif isinstance(m, dict) and "name" in m:
-                names.append(m["name"])
-            else:
-                # fallback to repr
-                names.append(str(m))
+            names.append(m.name)
         return jsonify({"models": names})
     except Exception as e:
         logging.exception("Failed to list models: %s", e)
@@ -145,7 +138,7 @@ def chat():
         if not question:
             return jsonify({"error": "No question provided"}), 400
 
-        if client is None:
+        if genai is None:
             # return helpful error shape expected by frontend
             return jsonify({
                 "error": "Gemini API not configured",
@@ -204,14 +197,9 @@ def chat():
 
         # Call the model
         try:
-            # The SDK convenience method; if your installed SDK expects different args,
-            # swap to the appropriate call. This pattern generally works with google-genai.
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt
-            )
-            # `response.text` is typically the combined returned text
-            answer_text = getattr(response, "text", None) or str(response)
+            model = genai.GenerativeModel(MODEL_NAME)
+            response = model.generate_content(prompt)
+            answer_text = response.text
             return jsonify({
                 "answer_markdown": answer_text,
                 "math_expressions": [],   # empty — front-end will convert inline math if present
@@ -221,8 +209,8 @@ def chat():
             logging.exception("Model generation failed: %s", gen_err)
             # Try to return helpful diagnostic including available models (best-effort)
             try:
-                models = client.models.list()
-                model_list = [m.name if hasattr(m, "name") else (m.get("name") if isinstance(m, dict) else str(m)) for m in models]
+                models = genai.list_models()
+                model_list = [m.name for m in models]
             except Exception:
                 model_list = None
 

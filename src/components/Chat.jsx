@@ -1,20 +1,29 @@
+// src/components/Chat.jsx
 import React, { useState, useEffect, useRef } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
 export default function Chat({ collection }){
   const [q, setQ] = useState('')
-  const [answerHtml, setAnswerHtml] = useState('<p>No answer yet</p>')
-  const [sources, setSources] = useState('')
+  const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
+  const [sources, setSources] = useState('')
+  const messagesEndRef = useRef(null)
   const answerRef = useRef(null)
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
 
   useEffect(()=>{
     if(window.docuMindTypeset && answerRef.current){
-      // typeset when content changes
       window.docuMindTypeset(answerRef.current).catch(()=>{})
     }
-  }, [answerHtml, sources])
+  }, [messages, sources])
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
 
   // Check if backend is available
   const checkBackend = async () => {
@@ -29,23 +38,31 @@ export default function Chat({ collection }){
 
   async function ask(){
     if(!collection){
-      setAnswerHtml('<p><em>Index a PDF first.</em></p>')
+      setMessages(prev => [...prev, 
+        { type: 'user', content: q },
+        { type: 'bot', content: '*Index a PDF first.*' }
+      ])
+      setQ('')
       return
     }
     
+    const userMessage = q
+    setMessages(prev => [...prev, { type: 'user', content: userMessage }])
+    setQ('')
     setIsLoading(true)
-    setAnswerHtml('<p>Thinking…</p>')
 
     // Check if backend is available
     const backendAvailable = await checkBackend()
     if (!backendAvailable) {
-      setAnswerHtml('<p>Backend server is not running. Please start the Flask backend or use the "Demo local" button.</p>')
+      setMessages(prev => [...prev, 
+        { type: 'bot', content: 'Backend server is not running. Please start the Flask backend.' }
+      ])
       setIsLoading(false)
       return
     }
 
     try{
-      const payload = { question: q, collection }
+      const payload = { question: userMessage, collection }
       const resp = await fetch('http://localhost:5000/api/chat', {
         method: 'POST', 
         headers: {'Content-Type': 'application/json'}, 
@@ -60,7 +77,9 @@ export default function Chat({ collection }){
 
       // Check if there's an error in the response
       if (data.error) {
-        setAnswerHtml(`<p>Backend error: ${DOMPurify.sanitize(data.error)}</p>`)
+        setMessages(prev => [...prev, 
+          { type: 'bot', content: `Backend error: ${DOMPurify.sanitize(data.error)}` }
+        ])
         return
       }
 
@@ -76,7 +95,7 @@ export default function Chat({ collection }){
         })
         const html = marked.parse(md)
         const clean = DOMPurify.sanitize(html)
-        setAnswerHtml(clean)
+        setMessages(prev => [...prev, { type: 'bot', content: clean }])
         setSources(data.sources_markdown || '')
         return
       }
@@ -84,68 +103,80 @@ export default function Chat({ collection }){
       // fallback: backend returns raw markdown text
       if(typeof data === 'string'){
         const html = marked.parse(data)
-        setAnswerHtml(DOMPurify.sanitize(html))
+        setMessages(prev => [...prev, { type: 'bot', content: DOMPurify.sanitize(html) }])
         return
       }
 
       // fallback: unknown shape
-      setAnswerHtml('<p>Unexpected backend response. See console.</p>')
+      setMessages(prev => [...prev, { type: 'bot', content: 'Unexpected backend response. See console.' }])
       console.log('backend response', data)
     }catch(e){
       console.error('Request failed:', e)
-      setAnswerHtml(`<p>Request failed: ${DOMPurify.sanitize(e.message)}. Make sure your backend is running on port 5000.</p>`)
+      setMessages(prev => [...prev, 
+        { type: 'bot', content: `Request failed: ${DOMPurify.sanitize(e.message)}. Make sure your backend is running on port 5000.` }
+      ])
     } finally {
       setIsLoading(false)
     }
   }
 
-  // locally-prepared demo renderer (if backend absent) — uses localStorage chunks
-  async function demoLocalAnswer(){
-    if(!collection){ setAnswerHtml('<p>Index a PDF first (demo mode).</p>'); return }
-    const stored = localStorage.getItem('documind:'+collection)
-    if(!stored){ setAnswerHtml('<p>No local index found.</p>'); return }
-    const parsed = JSON.parse(stored)
-    // naive retrieval: find first chunk with most overlapping words
-    const qwords = (q||'').toLowerCase().split(/\W+/).filter(Boolean)
-    const scores = parsed.chunks.map((c,i)=>{
-      const cnt = qwords.reduce((s,w)=> s + (c.text.toLowerCase().includes(w)?1:0), 0)
-      return {i,score:cnt}
-    }).sort((a,b)=>b.score-a.score)
-    const best = scores.slice(0,3).filter(x=>x.score>0)
-    if(best.length===0){ setAnswerHtml('<p>No relevant context found in local index.</p>'); return }
-    const mdParts = best.map(b=>`**(page ${parsed.chunks[b.i].page})**\n\n${parsed.chunks[b.i].text}`)
-    const md = `**Local demo answer — sources below**\n\n${mdParts.join('\n\n---\n\n')}`
-    setAnswerHtml(DOMPurify.sanitize(marked.parse(md)))
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      ask()
+    }
   }
 
   return (
     <div className="card">
       <h2>Chat</h2>
       <div className="helper">Collection: <strong>{collection || '—'}</strong></div>
+      
+      <div className="chat-messages">
+        {messages.map((msg, index) => (
+          <div 
+            key={index} 
+            className={`message ${msg.type}-message`}
+            ref={msg.type === 'bot' ? answerRef : null}
+          >
+            <div className="message-header">
+              {msg.type === 'user' ? 'You' : 'DocuMind'}
+            </div>
+            <div className="message-content">
+              {msg.type === 'bot' && isLoading && index === messages.length - 1 ? (
+                <div className="loading-dots">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              ) : (
+                <div dangerouslySetInnerHTML={{__html: msg.content}} />
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
       <textarea 
         value={q} 
         onChange={e=>setQ(e.target.value)} 
-        rows={4} 
+        onKeyPress={handleKeyPress}
         placeholder="Ask something about the indexed textbook..."
         disabled={isLoading}
       ></textarea>
       <div className="row">
-        <button onClick={ask} disabled={!collection || isLoading}>
-          {isLoading ? 'Asking...' : 'Ask (backend)'}
-        </button>
-        <button onClick={demoLocalAnswer} disabled={isLoading}>
-          Demo local
+        <button onClick={ask} disabled={!collection || isLoading || !q.trim()}>
+          {isLoading ? 'Thinking...' : 'Ask'}
         </button>
       </div>
 
-      <div className="answer documind-card">
-        <div ref={answerRef} dangerouslySetInnerHTML={{__html: answerHtml}} />
-      </div>
-
-      <div className="sources documind-card" style={{marginTop:12}}>
-        <h4>Sources</h4>
-        <div dangerouslySetInnerHTML={{__html: marked.parse(sources||'No sources.')}} />
-      </div>
+      {sources && (
+        <div className="sources documind-card">
+          <h4>Sources</h4>
+          <div dangerouslySetInnerHTML={{__html: marked.parse(sources)}} />
+        </div>
+      )}
     </div>
   )
 }
