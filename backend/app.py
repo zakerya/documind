@@ -1,28 +1,30 @@
-# app.py — DocuMind backend (Flask) with Google Gen AI (gemini) client
+# documind/backend/app.py
 import os
 import json
 import logging
+import shutil
+import atexit
+import signal
+import sys
 from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-
-# New Gen AI SDK
-try:
-    import google.generativeai as genai
-except Exception as e:
-    logging.error(f"Failed to import google.generativeai: {e}")
-    genai = None
+import google.generativeai as genai
 
 # --- Configuration ---
 logging.basicConfig(level=logging.DEBUG)
 load_dotenv()
 
+# API Keys
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# Default model; change or override with env GEMINI_MODEL
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
-INDEX_DIR = Path("./indexed")
+# Default model - updated to a current Gemini 2.5 Flash model (recommended for price/perf)
+# You can override this by setting the DEFAULT_MODEL environment variable.
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")
+
+# INDEX_DIR explicitly resolved relative to this file (documind/backend/indexed)
+INDEX_DIR = Path(__file__).resolve().parent / "indexed"
 INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Flask app setup ---
@@ -30,19 +32,65 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Client creation ---
-client = None
-if not GEMINI_API_KEY:
-    logging.warning("GEMINI_API_KEY not set — Gemini calls will be disabled.")
-else:
-    if genai is None:
-        logging.error("google-generativeai SDK not installed or importable. Install with: pip install google-generativeai")
-    else:
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            logging.info("Gemini client created.")
-        except Exception as e:
-            logging.exception("Failed to create Gemini client: %s", e)
-            genai = None
+gemini_client = None
+
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_client = genai
+        logging.info("Gemini client created.")
+    except Exception as e:
+        logging.exception("Failed to create Gemini client: %s", e)
+
+# --- Cleanup on exit: remove indexed files/folders ---
+def clear_index_dir():
+    """Delete all files and subdirectories inside the INDEX_DIR."""
+    try:
+        if INDEX_DIR.exists() and INDEX_DIR.is_dir():
+            for p in INDEX_DIR.iterdir():
+                try:
+                    if p.is_dir():
+                        shutil.rmtree(p)
+                        logging.debug("Removed directory: %s", p)
+                    else:
+                        p.unlink()
+                        logging.debug("Removed file: %s", p)
+                except Exception as e:
+                    logging.exception("Failed to remove '%s': %s", p, e)
+            logging.info("Cleared index directory %s", INDEX_DIR)
+        else:
+            logging.debug("Index directory %s does not exist (nothing to clear).", INDEX_DIR)
+    except Exception as e:
+        logging.exception("Error while clearing index directory %s: %s", INDEX_DIR, e)
+
+def _handle_shutdown(signum=None, frame=None):
+    logging.info("Shutdown initiated (signal=%s). Clearing index directory...", signum)
+    try:
+        clear_index_dir()
+    except Exception as e:
+        logging.exception("Error during shutdown cleanup: %s", e)
+    # Exit the process after cleanup
+    try:
+        sys.exit(0)
+    except SystemExit:
+        pass
+
+# Run clear on startup to guarantee stale files are removed
+clear_index_dir()
+
+# Ensure cleanup runs on normal interpreter exit too
+atexit.register(clear_index_dir)
+
+# Hook common termination signals so cleanup runs on Ctrl+C or SIGTERM
+try:
+    signal.signal(signal.SIGINT, _handle_shutdown)
+except Exception as e:
+    logging.debug("SIGINT handler could not be set: %s", e)
+
+try:
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+except Exception as e:
+    logging.debug("SIGTERM handler not supported on this platform or could not be set: %s", e)
 
 # --- Helpers ---
 def index_path_for(collection_name: str) -> Path:
@@ -63,7 +111,6 @@ def load_index_from_disk(collection_name: str):
         return json.load(f)
 
 def retrieve_top_chunks(chunks, question, top_k=3):
-    # Very naive retrieval: count overlapping words
     qwords = set([w for w in (question or "").lower().split() if w.isalnum()])
     if not qwords:
         return []
@@ -76,13 +123,26 @@ def retrieve_top_chunks(chunks, question, top_k=3):
     top = [chunks[i] for score, i in scored[:top_k] if score > 0]
     return top
 
+# --- Model calling functions ---
+def call_gemini_model(prompt, model_name):
+    if not gemini_client:
+        raise Exception("Gemini client not configured")
+    try:
+        model = gemini_client.GenerativeModel(model_name)
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        raise Exception(f"Gemini error: {str(e)}")
+
 # --- Endpoints ---
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify({
         "status": "ok",
-        "gemini_configured": GEMINI_API_KEY is not None,
-        "model": DEFAULT_MODEL
+        "models": {
+            "gemini": GEMINI_API_KEY is not None
+        },
+        "default_model": DEFAULT_MODEL
     })
 
 @app.route("/api/index", methods=["POST"])
@@ -106,7 +166,6 @@ def index_document():
             save_index_to_disk(collection, payload)
         except Exception as e:
             logging.exception("Failed to save index to disk: %s", e)
-            # still continue — indexing to disk is best-effort
             return jsonify({"status": "warning", "message": "Index received but failed to save locally", "error": str(e)}), 200
 
         return jsonify({"status": "success", "message": "Document indexed successfully"}), 200
@@ -116,17 +175,17 @@ def index_document():
 
 @app.route("/api/list-models", methods=["GET"])
 def list_models():
-    if genai is None:
-        return jsonify({"error": "Gemini client not configured"}), 500
-    try:
-        models = genai.list_models()
-        names = []
-        for m in models:
-            names.append(m.name)
-        return jsonify({"models": names})
-    except Exception as e:
-        logging.exception("Failed to list models: %s", e)
-        return jsonify({"error": str(e)}), 500
+    models = []
+    
+    # Add Gemini models if configured
+    if gemini_client:
+        try:
+            for m in gemini_client.list_models():
+                models.append({"name": m.name, "provider": "gemini"})
+        except Exception as e:
+            logging.exception("Failed to list Gemini models: %s", e)
+    
+    return jsonify({"models": models})
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
@@ -134,12 +193,13 @@ def chat():
         payload = request.get_json() or {}
         question = payload.get("question", "").strip()
         collection = payload.get("collection", "").strip()
+        model_name = payload.get("model", DEFAULT_MODEL)
 
         if not question:
             return jsonify({"error": "No question provided"}), 400
 
-        if genai is None:
-            # return helpful error shape expected by frontend
+        # Check if Gemini is configured
+        if not gemini_client:
             return jsonify({
                 "error": "Gemini API not configured",
                 "answer_markdown": "Backend error: Gemini API is not configured. Please check your GEMINI_API_KEY in the .env.",
@@ -147,7 +207,7 @@ def chat():
                 "sources_markdown": ""
             }), 500
 
-        # If collection provided, try to load the indexed document and perform simple retrieval
+        # Retrieve context if collection provided
         context_text = ""
         sources_markdown = ""
         if collection:
@@ -170,18 +230,30 @@ def chat():
             else:
                 sources_markdown = f"Source: Document '{collection}' (not found on server)"
 
-        # Build the prompt for the model — keep prompt sizes bounded
+        # Enhanced system instructions for smarter AI responses
         system_instructions = (
-            "You are an assistant that answers questions using provided context when available. "
-            "Return a concise, helpful answer in markdown. If you use math, format it using LaTeX delimiters (\\(...\\) or \\[...\\])."
+            "You are an intelligent assistant that answers questions using provided context when available. "
+            "Your responses should be well-organized, using markdown formatting to enhance readability:\n"
+            "- Use **bold** to highlight key terms and important concepts\n"
+            "- Use bullet points or numbered lists for structured information\n"
+            "- Use headings (##) to organize sections\n"
+            "- When appropriate, create summaries, outlines, or study notes\n"
+            "- Always cite source pages from the provided context\n"
+            "- For requests like 'summarize unit 5' or 'make notes on chapter 3', identify the relevant sections and provide organized output\n"
+            "- Prioritize accuracy and clarity in your responses\n\n"
+            "Example formatting for notes:\n"
+            "## Key Concepts\n"
+            "- **Term**: Definition...\n"
+            "- **Process**: Step-by-step explanation...\n\n"
+            "## Summary\n"
+            "Concise summary of the main points...\n\n"
+            "Remember to use LaTeX delimiters (\\(...\\) or \\[...\\]) for any mathematical expressions."
         )
 
-        # Limit context length to avoid giant prompts
         max_context_chars = 18_000
         if context_text and len(context_text) > max_context_chars:
             context_text = context_text[:max_context_chars] + "\n\n...[truncated]\n"
 
-        # Compose the content passed to the model
         if context_text:
             prompt = (
                 f"{system_instructions}\n\n"
@@ -192,36 +264,24 @@ def chat():
         else:
             prompt = f"{system_instructions}\n\nQuestion: {question}\n\nAnswer in markdown."
 
-        MODEL_NAME = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
-        logging.debug("Calling model %s with prompt length %d", MODEL_NAME, len(prompt))
+        logging.debug("Calling model %s with prompt length %d", model_name, len(prompt))
 
-        # Call the model
+        # Call the Gemini model
         try:
-            model = genai.GenerativeModel(MODEL_NAME)
-            response = model.generate_content(prompt)
-            answer_text = response.text
+            answer_text = call_gemini_model(prompt, model_name)
             return jsonify({
                 "answer_markdown": answer_text,
-                "math_expressions": [],   # empty — front-end will convert inline math if present
+                "math_expressions": [],
                 "sources_markdown": sources_markdown
             })
         except Exception as gen_err:
             logging.exception("Model generation failed: %s", gen_err)
-            # Try to return helpful diagnostic including available models (best-effort)
-            try:
-                models = genai.list_models()
-                model_list = [m.name for m in models]
-            except Exception:
-                model_list = None
-
             err_resp = {
                 "error": str(gen_err),
                 "answer_markdown": f"Error while calling model: {str(gen_err)}",
                 "math_expressions": [],
                 "sources_markdown": sources_markdown
             }
-            if model_list is not None:
-                err_resp["available_models"] = model_list
             return jsonify(err_resp), 500
 
     except Exception as e:
@@ -235,5 +295,11 @@ def chat():
 
 # --- Entrypoint ---
 if __name__ == "__main__":
-    # For development only. Use a WSGI server for production.
-    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+    try:
+        app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+    finally:
+        # In case app.run returns (rare), ensure cleanup
+        try:
+            clear_index_dir()
+        except Exception as e:
+            logging.exception("Final cleanup failed: %s", e)

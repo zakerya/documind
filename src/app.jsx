@@ -9,6 +9,19 @@ export default function App() {
   const [collection, setCollection] = useState('')
   useMathJax()
 
+  // Clean up local storage when component unmounts
+  React.useEffect(() => {
+    return () => {
+      // Clear all localStorage items related to documind
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith('documind:')) {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+  }, [])
+
   return (
     <div className="app-root">
       <div className="topbar">

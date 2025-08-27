@@ -1,19 +1,21 @@
+"use client"
+
 // src/hooks/useMathJax.js
-import { useEffect } from 'react'
+import { useEffect } from "react"
 
 /**
  * useMathJax
  * - Loads MathJax v3 from CDN (tex-mml-chtml build)
  * - Sets a config that:
  *   - disables automatic startup typeset (we call typesetPromise manually)
- *   - recognizes \( \), \[ \] and $ $ as math delimiters (you can customize)
+ *   - recognizes $$ $$, \[ \] and $ $ as math delimiters (you can customize)
  * - Exposes:
  *   - window.docuMindMathJaxReady: Promise that resolves when MathJax is ready
  *   - window.docuMindTypeset(el): async fn to typeset a specific DOM node
  */
-export default function useMathJax () {
+export default function useMathJax() {
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === "undefined") return
 
     // If already loaded, just ensure helper exists
     if (window.MathJax && window.docuMindTypeset) return
@@ -23,17 +25,18 @@ export default function useMathJax () {
     // - define inline/display delimiters (add or remove as you prefer)
     window.MathJax = {
       startup: {
-        typeset: false // we'll call typesetPromise manually on specific nodes
+        typeset: false, // we'll call typesetPromise manually on specific nodes
       },
       tex: {
-        inlineMath: [['\\(', '\\)'], ['$', '$']],      // allow \(..\) and $..$
-        displayMath: [['\\[', '\\]'], ['$$', '$$']],  // allow \[..\] and $$..$$
-        packages: ['base', 'ams'] // load common TeX packages; add 'mhchem' if you need
+        // Put $$ first in the inline array to avoid ambiguous parsing in some content flows
+        inlineMath: [["$$", "$$"], ["$", "$"]], // allow $$..$$ and $..$
+        displayMath: [["\\[", "\\]"], ["$$", "$$"]], // allow \[..\] and $$..$$
+        packages: ["base", "ams"], // load common TeX packages; add 'mhchem' if you need
       },
       options: {
         // keep MathJax from trying to typeset inside these tags
-        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
-      }
+        skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
+      },
     }
 
     // Create a promise that resolves when MathJax is fully loaded and startup ready
@@ -44,18 +47,18 @@ export default function useMathJax () {
     })
 
     // Load the MathJax script from CDN
-    const script = document.createElement('script')
-    script.type = 'text/javascript'
-    script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'
+    const script = document.createElement("script")
+    script.type = "text/javascript"
+    script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
     script.async = true
 
     script.onload = async () => {
       try {
         // Wait for MathJax startup to finish
-        // MathJax exposes startup.promise per v3; wait for it.
         if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
           await window.MathJax.startup.promise
         }
+
         // Expose helper to typeset a single element (safe)
         window.docuMindTypeset = async (el) => {
           try {
@@ -65,31 +68,31 @@ export default function useMathJax () {
             if (!el) {
               // if no element passed, fallback to typeset the whole document body
               nodes.push(document.body)
-            } else if (typeof el === 'string') {
+            } else if (typeof el === "string") {
               const node = document.querySelector(el)
               if (node) nodes.push(node)
             } else if (el instanceof Element) {
               nodes.push(el)
             } else if (Array.isArray(el)) {
-              el.forEach(x => x instanceof Element && nodes.push(x))
+              el.forEach((x) => x instanceof Element && nodes.push(x))
             }
             if (nodes.length === 0) return
             await window.MathJax.typesetPromise(nodes)
           } catch (e) {
-            console.error('MathJax typeset failed', e)
+            console.error("MathJax typeset failed", e)
             throw e
           }
         }
 
         readyResolve(true)
       } catch (e) {
-        console.error('MathJax initialization failed', e)
+        console.error("MathJax initialization failed", e)
         readyReject(e)
       }
     }
 
     script.onerror = (err) => {
-      console.error('Failed to load MathJax script', err)
+      console.error("Failed to load MathJax script", err)
       if (readyReject) readyReject(err)
     }
 
